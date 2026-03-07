@@ -1,0 +1,83 @@
+services:
+  pd:
+    image: pingcap/pd:v8.5.5
+    command:
+      - --name=pd
+      - --data-dir=/var/lib/pd
+      - --client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://pd:2379
+      - --peer-urls=http://0.0.0.0:2380
+      - --advertise-peer-urls=http://pd:2380
+    restart: unless-stopped
+
+  tikv1:
+    image: pingcap/tikv:v8.5.5
+    command:
+      - --pd=pd:2379
+      - --addr=0.0.0.0:20160
+      - --advertise-addr=tikv1:20160
+      - --data-dir=/var/lib/tikv
+      - --status-addr=0.0.0.0:20180
+    restart: unless-stopped
+    depends_on:
+      - pd
+
+  tikv2:
+    image: pingcap/tikv:v8.5.5
+    command:
+      - --pd=pd:2379
+      - --addr=0.0.0.0:20160
+      - --advertise-addr=tikv2:20160
+      - --data-dir=/var/lib/tikv
+      - --status-addr=0.0.0.0:20180
+    restart: unless-stopped
+    depends_on:
+      - pd
+
+  tikv3:
+    image: pingcap/tikv:v8.5.5
+    command:
+      - --pd=pd:2379
+      - --addr=0.0.0.0:20160
+      - --advertise-addr=tikv3:20160
+      - --data-dir=/var/lib/tikv
+      - --status-addr=0.0.0.0:20180
+    restart: unless-stopped
+    depends_on:
+      - pd
+
+  surreal:
+    image: surrealdb/surrealdb:v3.0.2-dev
+    command:
+      - start
+      - --log
+      - TRACE
+      - --bind
+      - 0.0.0.0:8000
+      - --user
+      - ${SURREALDB_USER:-user}
+      - --pass
+      - ${SURREALDB_PASS:-pass}
+      - tikv://pd:2379
+    restart: unless-stopped
+    depends_on:
+      - pd
+      - tikv1
+      - tikv2
+      - tikv3
+
+  app:
+    build:
+      context: .
+      dockerfile: ./docker/app/develop.Dockerfile
+    tty: true
+    volumes:
+      - .:/application
+    ports:
+      - 4943:4943 # icp
+    depends_on:
+      - surreal
+    environment:
+      - SURREALDB_URL=http://surreal:8000
+      - SURREALDB_USER=${SURREALDB_USER:-user}
+      - SURREALDB_PASS=${SURREALDB_PASS:-pass}
