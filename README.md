@@ -1,4 +1,4 @@
-# nim-icp-surrealdb-fluxcloud
+# Decentralized Cloud Stack (Nim-ICP-FluxCloud-SurrealDB)
 
 ## 概要
 
