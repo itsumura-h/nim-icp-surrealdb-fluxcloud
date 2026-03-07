@@ -1,1 +1,7 @@
+*
+!*.*
+!*/
+!makefile
+
 .diff
+*.wasm

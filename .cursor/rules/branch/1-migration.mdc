@@ -1,0 +1,76 @@
+---
+description: 1-migrationブランチでの開発時に読み込む
+alwaysApply: false
+---
+1-migration ブランチルール（Linux/Nim からの SurrealDB マイグレーション）
+===
+
+## このブランチで実装すること（結論）
+
+このブランチの目的は、**ICP キャニスターを作らず**、**通常の Linux 環境上で Nim 製のマイグレーション実行（Migration Runner）**を成立させるための
+**調査・設計・仕様確定**を行うこと。
+
+- [MUST] `src/` / `example/src/` の機能実装に入らない（プロジェクトフェーズ遵守）
+- [MUST] ICP キャニスターは作らない（このブランチでは扱わない）
+- [MUST] 秘密情報（DB パスワード等）をコード/ドキュメントへ直書きしない
+- [SHOULD] マイグレーションは「DB 運用/管理」の枠に閉じ、キャニスターの運用権限と分離する
+
+## スコープ
+
+### 含める
+- SurrealDB v3.0.x を対象にしたマイグレーション方針の調査（権限、HTTP 実行、トランザクション可否、失敗時の整合性）
+- マイグレーションの**ファイル形式**（SurrealQL の分割単位・命名規則・依存関係の扱い）
+- マイグレーションの**メタデータ**（適用済み判定、チェックサム、再実行可否）
+- Nim CLI（Linux で動く）の**仕様**（引数、環境変数、dry-run、plan、apply、status）
+- ローカル開発手順の設計（`compose.yaml` 前提の実行経路）
+
+### 含めない（このブランチでやらない）
+- Nim Migration Runner の実装（コード追加/機能追加）
+- ICP キャニスター実装・dfx 周りの調整
+- Flux/本番デプロイ手順の断定（未確認仕様に依存するため）
+
+## 進捗
+
+- [ ] SurrealDB v3 のマイグレーション実行方法（HTTP `/sql` か、管理 API 化か）を比較し、採用案を決める
+- [ ] マイグレーション適用の原子性（トランザクション）とリトライ方針を調査し、設計に反映する
+- [ ] マイグレーション用の権限モデルを定義（root を避け、最小権限の「migration user」を設計）
+- [ ] `migrate/` 配下のディレクトリ構成・ファイル命名規則・バージョニング規則を確定する
+- [ ] 「適用済み管理（migration ledger）」のスキーマ案と更新手順を確定する
+- [ ] Nim CLI の I/F を確定（env/引数/出力形式/エラー規約）
+- [ ] ローカル実行導線を確定（`docker compose exec app ...` を前提にするか、ポート公開を要件化するか）
+- [ ] 設計まとめ（確定/推測/未解決）を更新し、次ブランチでの実装着手条件をチェックリスト化する
+
+## SurrealDB 接続先（compose.yaml からの読み取り）
+
+- Docker Compose の同一ネットワーク内（`app` コンテナ等）からは `http://surreal:8000` にアクセスする（`app` の `SURREALDB_URL` も同値）。
+- ホスト Linux から `http://localhost:8000` で直接アクセスは **現状できない**（`surreal` サービスに `ports:` の公開設定がないため）。
+  - ホストから叩きたい場合は、(a) `docker compose exec app ...` でコンテナ内から実行するか、(b) `surreal` に `8000:8000` を公開する設計に変更する。
+
+## 参考資料
+
+- SurrealDB SurrealQL via HTTP（`/sql`）: https://surrealdb.com/docs/surrealdb/querying/surrealql/http
+- SurrealDB 認証: https://surrealdb.com/docs/surrealdb/security/authentication
+- SurrealDB Capabilities: https://surrealdb.com/docs/surrealdb/security/capabilities
+- リポジトリ内:
+  - `compose.yaml`（ローカル SurrealDB + TiKV 構成、SurrealDB の bind/認証設定）
+  - `README.md`（Compose 概要）
+  - `.cursor/rules/project.mdc`（現フェーズと設計上の必須制約）
+
+## 調査結果・設計まとめ（2026-03-07 UTC 時点の叩き台）
+
+### 設計判断（暫定）
+
+- マイグレーションは **ICP outcall 制約の外**で動く「運用ツール」であり、キャニスター用の API 面（`DEFINE API`）とは分離して設計する。
+- マイグレーション実行に `/sql` を使う場合でも、**キャニスターが `/sql` を叩く設計の既定化**とは切り離して扱う（運用ツール専用・最小権限ユーザー前提）。
+
+### 未解決（要調査）
+
+- SurrealDB v3 におけるトランザクションのサポート範囲（DDL/DEFINE を含む場合の挙動、HTTP 実行時の一括適用可否）
+- マイグレーション適用済み管理（ledger）の安全な更新手順（「適用→記録」順序、部分失敗時の回復）
+- 既存 `compose.yaml` の SurrealDB イメージタグが `v3.0.2-dev` になっている理由と、設計対象の `v3.0.x` 安定版との整合
+
+### 次ブランチ（実装）に入るための条件（草案）
+
+- マイグレーション方式（実行経路・権限・原子性）を 1 つに確定し、理由とトレードオフが記載されている
+- CLI 仕様（コマンドと必須 env）が確定し、出力例（成功/失敗）が設計として合意されている
+- ledger のスキーマと更新規約が確定し、再実行/ロールバック方針が説明できる
