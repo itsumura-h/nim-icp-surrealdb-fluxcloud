@@ -1,4 +1,6 @@
 import nicp_cdk
 import ./controller
 
-proc migrate*() {.update.} = discard controller.migrate()
+proc infoForDb*() {.update.} = discard controller.infoForDb()
+proc createTodo*() {.update.} = discard controller.createTodo()
+proc listTodos*() {.update.} = discard controller.listTodos()

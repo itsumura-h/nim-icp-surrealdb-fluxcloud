@@ -24,8 +24,8 @@ proc exec*(query:string):Future[string] {.async.} =
     ],
     body: some(body),
     transform: none(HttpTransform),
-    is_replicated: some(false),
+    is_replicated: some(true),
   )
-  let response = await ManagementCanister.httpRequest(request)
+  let response = await ManagementCanister.httpOutcall(request)
   let responseBody = response.getTextBody()
   return responseBody.strip()

@@ -2,6 +2,7 @@
 ## 秘密情報はコードに直書きせず、環境変数から読み込む（SYW-SEC-001）。
 ## 実行例: docker compose exec app nim c -r migrate/migrate.nim
 ## 前提: SURREALDB_URL, SURREALDB_USER, SURREALDB_PASS は compose または env で設定済み
+## Todo スキーマ適用時: SURREALDB_NS=main, SURREALDB_DB=main のまま実行（既定値で可）。NS/DB todo_app を定義した上で USE するため。
 
 import std/[httpclient, base64, os, strutils, asyncdispatch]
 
@@ -15,8 +16,16 @@ proc main {.async.} =
   let sqlUrl = baseUrl & "/sql"
   let auth = base64.encode(user & ":" & pass)
 
-  # クエリを文字列で組み立ててそのまま送る（引数があれば第1引数、なければ例として INFO FOR DB）
-  let query = if paramCount() > 0: paramStr(1) else: "INFO FOR DB;"
+  const QUERY = """
+REMOVE TABLE todo;
+DEFINE TABLE todo SCHEMAFULL;
+DEFINE FIELD principal ON todo TYPE string;
+DEFINE FIELD title ON todo TYPE string;
+DEFINE FIELD completed ON todo TYPE bool DEFAULT false;
+DEFINE FIELD created_at ON todo TYPE datetime DEFAULT time::now();
+DEFINE FIELD updated_at ON todo TYPE option<datetime> DEFAULT NONE;
+DEFINE INDEX idx_todo_principal ON TABLE todo COLUMNS principal;
+"""
 
   var client = newAsyncHttpClient()
   client.headers = newHttpHeaders({
@@ -25,7 +34,7 @@ proc main {.async.} =
     "Authorization": "Basic " & auth,
     "Content-Type": "text/plain",
   })
-  let resp = await client.post(sqlUrl, query)
+  let resp = await client.post(sqlUrl, QUERY.strip())
   echo "status: ", resp.status
   echo "body: ", await resp.body
 

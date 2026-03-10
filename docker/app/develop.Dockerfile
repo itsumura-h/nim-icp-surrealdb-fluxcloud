@@ -1,4 +1,4 @@
-FROM ubuntu:24.04 AS wasi-tools
+FROM ubuntu:24.04 AS base
 
 # prevent timezone dialogue
 ENV DEBIAN_FRONTEND=noninteractive
@@ -6,9 +6,28 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt update && \
     apt upgrade -y
 RUN apt install -y \
-        build-essential \
-        curl \
-        git
+      build-essential \
+      xz-utils \
+      ca-certificates \
+      vim \
+      wget \
+      curl \
+      git \
+      jq \
+      # for ic-wasi-polyfill
+      libunwind-dev \
+      # for LLVM
+      # reference: https://github.com/ICPorts-labs/chico/blob/main/examples/HelloWorld/Dockerfile#L32
+      # reference: https://github.com/dfinity/examples/tree/master/c/reverse
+      lldb \
+      lld \
+      gcc-multilib
+
+RUN apt clean && apt autoremove -y
+ 
+
+# ================================================================================
+FROM base AS wasi-tools
 
 # rust
 WORKDIR /root
@@ -31,30 +50,7 @@ RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/dfinity/ic-wasm/rel
 
 
 # ================================================================================
-FROM ubuntu:24.04 AS app
-
-# prevent timezone dialogue
-ENV DEBIAN_FRONTEND=noninteractive
-
-RUN apt update && \
-    apt upgrade -y
-RUN apt install -y \
-        build-essential \
-        libunwind-dev \
-        xz-utils \
-        ca-certificates \
-        vim \
-        wget \
-        curl \
-        git \
-        jq
-
-# LLVM
-# reference: https://github.com/ICPorts-labs/chico/blob/main/examples/HelloWorld/Dockerfile#L32
-# reference: https://github.com/dfinity/examples/tree/master/c/reverse
-RUN apt install -y lldb lld gcc-multilib
-
-RUN apt autoremove -y
+FROM base AS app
 
 # icp
 # https://github.com/dfinity/sdk/releases/latest
