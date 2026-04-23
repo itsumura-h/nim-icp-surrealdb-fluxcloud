@@ -1,4 +1,5 @@
 services:
+  # TiKV の Placement Driver（クラスタ調整・メタデータ・TSO）。tikv1〜3 と surreal が pd:2379 に接続する。
   pd:
     image: pingcap/pd:v8.5.5
     command:
@@ -47,7 +48,7 @@ services:
       - pd
 
   surreal:
-    image: surrealdb/surrealdb:v3.0.2-dev
+    image: surrealdb/surrealdb:v3.0.2
     command:
       - start
       - --log
@@ -55,9 +56,9 @@ services:
       - --bind
       - 0.0.0.0:8000
       - --user
-      - ${SURREALDB_USER:-user}
+      - "user"
       - --pass
-      - ${SURREALDB_PASS:-pass}
+      - "pass"
       - tikv://pd:2379
     restart: unless-stopped
     depends_on:
@@ -66,6 +67,8 @@ services:
       - tikv2
       - tikv3
 
+  # basolato バックエンド開発用コンテナ。Flux Cloud 上で動かすメインバックエンドのローカル開発環境。
+  # ICP キャニスター開発用コンテナ。Internet Identity 認証基盤の開発に使う。
   app:
     build:
       context: .
@@ -74,10 +77,13 @@ services:
     volumes:
       - .:/application
     ports:
-      - 4943:4943 # icp
+      - 4943:4943 # icp internet identity
+      - 3000:3000 # preact frontend
+      - 8000:8000 # basolato backend
     depends_on:
       - surreal
     environment:
       - SURREALDB_URL=http://surreal:8000
-      - SURREALDB_USER=${SURREALDB_USER:-user}
-      - SURREALDB_PASS=${SURREALDB_PASS:-pass}
+      - SURREALDB_USER="user"
+      - SURREALDB_PASS="pass"
+      - ICP_NETWORK="local"

@@ -1,0 +1,52 @@
+---
+description: 3-todo-appブランチでの開発時に読み込む
+alwaysApply: false
+---
+3-todo-app ブランチルール
+===
+
+このブランチで実装することは以下の通りです。
+- Internet Identity 認証基盤（ICP）+ basolato バックエンド（Flux Cloud）+ SurrealDB のアーキテクチャで Todo アプリのサンプルを構築する
+- ICP キャニスターは Internet Identity 認証のみを担当する
+- basolato 側に II Auth ミドルウェアを実装し、delegation chain の暗号学的検証で認証する
+- Todo CRUD API を basolato で実装し、SurrealDB に永続化する
+
+## 進捗
+- [x] アーキテクチャ設計変更: ICP = 認証基盤のみ / Flux = basolato + SurrealDB に変更
+- [x] README.md（設計書）全面改訂
+- [x] project.mdc（プロジェクトルール）改訂
+- [x] 3-todo-app ブランチルール作成
+- [x] compose.yaml 改訂（basolato コンテナ追加）
+- [x] makefile 改訂
+- [ ] delegation chain 検証ライブラリの選定・確定
+- [ ] basolato II Auth ミドルウェアの詳細設計
+- [ ] basolato プロジェクトの scaffold
+- [ ] SurrealDB マイグレーション（todos テーブル）
+- [ ] Todo CRUD API 実装
+- [ ] フロントエンド（Internet Identity ログイン + API 呼び出し）
+
+## 参考資料
+- README.md: 本設計書
+- .cursor/rules/project.mdc: プロジェクトルール
+- basolato: https://github.com/itsumura-h/nim-basolato
+- ICP Signature Verification: https://docs.internetcomputer.org/building-apps/authentication/independently-verifying-ic-signatures
+- ic-validator-ingress-message: https://github.com/dfinity/ic/tree/master/rs/validator
+- @dfinity/standalone-sig-verifier-web: https://www.npmjs.com/package/@dfinity/standalone-sig-verifier-web
+- Internet Identity Spec: https://docs.internetcomputer.org/references/ii-spec
+
+## 調査結果・設計まとめ
+
+### アーキテクチャ変更の動機
+旧設計では ICP キャニスターがメインバックエンドで、参照系・更新系すべてで HTTPS outcall が発生しガス代がかかっていた。新設計では ICP は Internet Identity 認証基盤のみとし、メインバックエンドを basolato on Flux Cloud に移行することで HTTPS outcall を排除しコストを削減する。
+
+### 認証フロー
+1. Frontend → Internet Identity でログイン → delegation chain 取得
+2. Frontend → basolato backend に delegation chain をヘッダに含めてリクエスト
+3. basolato II Auth ミドルウェアが delegation chain を暗号学的に検証
+4. 検証成功 → principal をコンテキストに設定 → 業務ハンドラへ
+5. 検証失敗 → 401 Unauthorized
+
+### delegation chain 検証の実装方針
+- 公式ライブラリ（`ic-validator-ingress-message` Rust crate / `@dfinity/standalone-sig-verifier-web` Wasm）を使う
+- Nim から Rust shared library を FFI で呼ぶか、Wasm を subprocess で呼ぶかは要検討
+- 自前での暗号学的検証実装は脆弱性リスクが高いため非推奨

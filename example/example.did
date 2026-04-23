@@ -1,5 +1,0 @@
-service : {
-  infoForDb : () -> (text);
-  createTodo : (text) -> (text);
-  listTodos : () -> (vec text);
-}

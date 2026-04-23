@@ -14,6 +14,9 @@ RUN apt install -y \
       curl \
       git \
       jq \
+      # icp-cli (@icp-sdk/icp-cli) のプリビルドバイナリ実行に必要（npm README の libdbus / libssl 相当）
+      libdbus-1-3 \
+      libssl3t64 \
       # for ic-wasi-polyfill
       libunwind-dev \
       # for LLVM
@@ -21,7 +24,9 @@ RUN apt install -y \
       # reference: https://github.com/dfinity/examples/tree/master/c/reverse
       lldb \
       lld \
-      gcc-multilib
+      gcc-multilib\
+      # nim regex
+      libpcre3-dev
 
 RUN apt clean && apt autoremove -y
  
@@ -32,7 +37,7 @@ FROM base AS wasi-tools
 # rust
 WORKDIR /root
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
-ENV PATH $PATH:/root/.cargo/bin
+ENV PATH=$PATH:/root/.cargo/bin
 
 # build ic-wasi-polyfill
 WORKDIR /root
@@ -52,30 +57,19 @@ RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/dfinity/ic-wasm/rel
 # ================================================================================
 FROM base AS app
 
-# icp
-# https://github.com/dfinity/sdk/releases/latest
-WORKDIR /root
-RUN curl -OL https://internetcomputer.org/install.sh
-RUN chmod +x install.sh
-RUN DFXVM_INIT_YES=yes ./install.sh
-RUN rm -f install.sh
-ENV PATH $PATH:/root/.local/share/dfx/bin
-RUN ls -la /root/.local/share/dfx/bin
-RUN dfx --version
-
 # wasi
 # reference: https://github.com/ICPorts-labs/chico/blob/main/examples/HelloWorld/Dockerfile#L48-L59
 # https://github.com/WebAssembly/wasi-sdk/releases/latest
 WORKDIR /root
-ENV WASI_VERSION="30"
-ENV WASI_VERSION_FULL="$WASI_VERSION.0"
+ENV WASI_VERSION=30
+ENV WASI_VERSION_FULL="${WASI_VERSION}.0"
 RUN curl -L -o wasi-sdk.tar.gz https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_VERSION}/wasi-sdk-${WASI_VERSION_FULL}-x86_64-linux.tar.gz
 RUN tar -xzf wasi-sdk.tar.gz
 RUN rm wasi-sdk.tar.gz
 RUN mv "wasi-sdk-${WASI_VERSION_FULL}-x86_64-linux" ".wasi-sdk"
-ENV WASI_SDK_PATH "/root/.wasi-sdk"
+ENV WASI_SDK_PATH=/root/.wasi-sdk
 RUN echo $WASI_SDK_PATH
-ENV PATH $PATH:"${WASI_SDK_PATH}/bin"
+ENV PATH=$PATH:${WASI_SDK_PATH}/bin
 
 # webt
 # https://github.com/WebAssembly/wabt
@@ -86,7 +80,7 @@ WORKDIR /root
 RUN curl https://nim-lang.org/choosenim/init.sh -o init.sh
 RUN sh init.sh -y
 RUN rm -f init.sh
-ENV PATH $PATH:/root/.nimble/bin
+ENV PATH=$PATH:/root/.nimble/bin
 
 # nimlangserver
 # https://github.com/nim-lang/langserver/releases/latest
@@ -105,11 +99,25 @@ RUN curl -OL https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linu
 RUN tar -xvf node-v${NODE_VERSION}-linux-x64.tar.xz
 RUN rm node-v${NODE_VERSION}-linux-x64.tar.xz
 RUN mv node-v${NODE_VERSION}-linux-x64 .node
-ENV PATH $PATH:/root/.node/bin
+ENV PATH=$PATH:/root/.node/bin
 
-# pnpm
+# dfx
+# https://github.com/dfinity/sdk/releases/latest
+WORKDIR /root
+RUN curl -OL https://internetcomputer.org/install.sh
+RUN chmod +x install.sh
+RUN DFXVM_INIT_YES=yes ./install.sh
+RUN rm -f install.sh
+
+# icp-cli
+WORKDIR /root
+RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/dfinity/icp-cli/releases/latest/download/icp-cli-installer.sh | sh
+ENV PATH=$PATH:/root/.cargo/bin
+RUN icp --version
+
+# pnpm（グローバル CLI はログインシェル向け設定が必要なので、プロジェクト側で pnpm を使う想定）
 RUN curl -fsSL https://get.pnpm.io/install.sh | bash -s -- -y
-ENV PATH $PATH:/root/.local/share/pnpm
+ENV PATH=$PATH:/root/.local/share/pnpm
 
 # foundry
 RUN curl -L https://foundry.paradigm.xyz | bash
@@ -119,17 +127,15 @@ RUN foundryup
 # copy from wasi-tools
 WORKDIR /root
 COPY --from=wasi-tools /root/ic-wasi-polyfill/target/wasm32-wasip1/release/* /root/.ic-wasi-polyfill/
-ENV IC_WASI_POLYFILL_PATH "/root/.ic-wasi-polyfill"
+ENV IC_WASI_POLYFILL_PATH=/root/.ic-wasi-polyfill
 COPY --from=wasi-tools /root/.cargo/bin/* /root/.cargo/bin/
-ENV PATH $PATH:/root/.cargo/bin
+ENV PATH=$PATH:/root/.cargo/bin
 
 # check command installed successfully
 RUN nim -v
 RUN nimble -v
 RUN node -v
-RUN pnpm -v
 RUN forge --version
-RUN ic-wasm --version
 RUN wasi2ic --version
 
 

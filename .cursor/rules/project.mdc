@@ -29,32 +29,37 @@ Lint可能化のため、規範ルールは **Rule ID** を持つ。
 
 | ID | LEVEL | CHECK | 対象 | 要件（要約） |
 |---|---|---|---|---|
-| SYW-SCOPE-001 | MUST | manual | 全体 | このリポジトリの達成目標は、Nim 製 ICP キャニスターから Flux Cloud 上の SurrealDB v3 に HTTPS outcall で接続する分散クラウドスタックのサンプルを成立させること |
+| SYW-SCOPE-001 | MUST | manual | 全体 | このリポジトリの達成目標は、ICP を Internet Identity 認証基盤として使い、メインバックエンドを Nim basolato で Flux Cloud 上に実装し、SurrealDB v3 をデータベースとするサンプルを成立させること |
 | SYW-PHASE-001 | MUST | manual | 現フェーズ | 設計完了と承認までは実装に進まない |
-| SYW-ARCH-001 | MUST | manual | アーキテクチャ | ICP 側はアプリケーション層、SurrealDB 側はデータベース層として責務分離する |
-| SYW-ICP-001 | MUST | manual | 外部通信 | キャニスター外部通信は ICP management canister の HTTPS outcall 制約に適合させる |
-| SYW-ICP-002 | MUST | manual | DB書き込み | SurrealDB への `POST` 書き込みは idempotency 設計なしに採用しない |
-| SYW-DB-001 | MUST | manual | DB API | キャニスターから汎用 `/sql` を直接叩く設計を既定値にしない |
+| SYW-ARCH-001 | MUST | manual | アーキテクチャ | ICP 側は Internet Identity 認証基盤のみ、basolato on Flux Cloud がメインバックエンド、SurrealDB がデータベース層として責務分離する |
+| SYW-ARCH-002 | MUST | manual | アーキテクチャ | ICP HTTPS outcall を業務ロジックのために使わない |
+| SYW-AUTH-001 | MUST | manual | 認証 | フロントエンドから basolato への認証は Internet Identity delegation chain の暗号学的検証で行う |
+| SYW-AUTH-002 | MUST | manual | 認証 | principal 文字列の自己申告だけで認証完了としない |
+| SYW-AUTH-003 | MUST | manual | 認証 | delegation chain の署名検証は公式ライブラリを使い、自前実装しない |
+| SYW-AUTH-006 | MUST | config | フロントエンド（ブラウザ） | Internet Identity 連携は `@icp-sdk/auth` を使う。`@dfinity/auth-client` は採用しない（[icp-js-auth](https://github.com/dfinity/icp-js-auth)） |
+| SYW-DB-001 | MUST | manual | DB API | basolato から汎用 `/sql` を直接叩く設計を既定値にしない |
 | SYW-DB-002 | SHOULD | manual | DB API | SurrealDB v3 の `DEFINE API` で用途限定エンドポイントを構成する |
-| SYW-DB-003 | MUST | manual | 認証 | ルート権限をキャニスターに持たせない |
+| SYW-DB-003 | MUST | manual | 認証 | ルート権限を basolato アプリに持たせない |
 | SYW-FLUX-001 | MUST | manual | デプロイ | Flux Cloud の 3 インスタンス前提を考慮し、DB の整合性戦略を設計に明記する |
 | SYW-FLUX-002 | SHOULD | manual | 公開経路 | Flux Domain または独自ドメインで HTTPS 到達性を確保する |
+| SYW-FLUX-003 | MUST | manual | バックエンド | basolato アプリは stateless に設計し、状態はすべて SurrealDB に持たせる |
 | SYW-DOC-001 | MUST | manual | 文書 | 仕様調査は日付つきで記録し、推測と確定仕様を区別する |
 | SYW-SEC-001 | MUST | manual | 秘密情報 | API キーや DB パスワードをコードへ直書きしない |
 
 ## 1. 目的・スコープ
-このプロジェクトでは、**Nim 言語で実装した ICP キャニスターから HTTPS outcall を用いて、Flux Cloud 上で公開された SurrealDB v3 に安全にアクセスするサンプル**を構築する。
+このプロジェクトでは、**ICP の Internet Identity を認証基盤として使い、メインのバックエンドロジックを Nim の basolato フレームワークで Flux Cloud 上に実装し、SurrealDB v3 をデータベースとするサンプル**を構築する。
 
 スコープに含むもの:
-- Nim / `nicp_cdk` ベースのキャニスター設計
-- ICP HTTPS outcall 制約に適合する API 設計
-- Flux Cloud 上での SurrealDB 配置方針
+- Internet Identity 認証と delegation chain の取り扱い
+- basolato フレームワークでの II Auth ミドルウェア設計
+- Flux Cloud 上での basolato + SurrealDB 配置方針
 - SurrealDB v3 の認証・権限・API 設計
 - 運用時の可観測性、障害時の切り分け、コスト観点
 
 スコープに含めないもの:
 - このターンでの実装、デプロイ、コミット
 - 未確認仕様に依存した本番向け HA 構成の断定
+- ICP HTTPS outcall を使った業務ロジック
 
 ## 2. 現在フェーズ
 
@@ -66,11 +71,11 @@ Lint可能化のため、規範ルールは **Rule ID** を持つ。
 
 ## 3. 達成目標
 
-- [SYW-SCOPE-001][MUST][manual] サンプルは「ICP をアプリ層」「SurrealDB を DB 層」として責務を明確に分離する。
-- [SYW-SCOPE-002][MUST][manual] 読み取り系と書き込み系で ICP outcall の制約差を明示し、同一パスで雑に扱わない。
-- [SYW-SCOPE-003][SHOULD][manual] サンプルは最小限でも、`health`、`schema/init`、`read`、`write(idempotent)` のユースケースを説明可能であること。
+- [SYW-SCOPE-001][MUST][manual] ICP は Internet Identity 認証基盤のみとし、メインバックエンドは basolato on Flux Cloud、データベースは SurrealDB として責務を明確に分離する。
+- [SYW-SCOPE-002][MUST][manual] フロントエンドから basolato への認証は delegation chain の暗号学的検証で行い、principal 自己申告を信頼しない。
+- [SYW-SCOPE-003][SHOULD][manual] サンプルは最小限でも、`health`、`todo CRUD`、`II Auth middleware` のユースケースを説明可能であること。
 
-## 4. 外部仕様ベースライン（2026-03-07 UTC 確認）
+## 4. 外部仕様ベースライン（2026-04-19 JST 確認）
 
 ### 4.1 Flux Cloud
 
@@ -82,37 +87,44 @@ Lint可能化のため、規範ルールは **Rule ID** を持つ。
 
 ### 4.2 SurrealDB v3
 
-- [SYW-DB-001][MUST][manual] 設計対象は **SurrealDB v3.0.x** 系とする。2026-02-17 に `v3.0.0`、2026-02-24 に `v3.0.1` が公開されている。
-- [SYW-DB-002][SHOULD][manual] キャニスターから直接使う HTTP 面は、`/sql` よりも `DEFINE API` を優先する。
+- [SYW-DB-001][MUST][manual] 設計対象は **SurrealDB v3.0.x** 系とする。
+- [SYW-DB-002][SHOULD][manual] basolato から直接使う面は、`/sql` よりも `DEFINE API` を優先する。
 - [SYW-DB-003][MUST][manual] `DEFINE TABLE` / `DEFINE FIELD` / `DEFINE ACCESS` により最小権限化する。
-- [SYW-DB-004][MUST][manual] キャニスターから利用する認証主体は root user ではなく namespace または database user とする。
+- [SYW-DB-004][MUST][manual] basolato から利用する認証主体は root user ではなく namespace または database user とする。
 - [SYW-DB-005][SHOULD][manual] `ACCESS` 文は experimental と明記されているため、サンプルの既定認証方式には採用しない。
 
-### 4.3 ICP HTTPS outcall
+### 4.3 Internet Identity
 
-- [SYW-ICP-001][MUST][manual] 外部呼び出しは HTTPS を使う。
-- [SYW-ICP-002][MUST][manual] 利用メソッドは ICP がサポートする `GET` / `HEAD` / `POST` のみに限定する。
-- [SYW-ICP-003][MUST][manual] `max_response_bytes` を毎回明示し、2MB 既定値に依存しない。
-- [SYW-ICP-004][MUST][manual] 変動ヘッダや時刻などで不一致が起きる可能性がある応答には transform 関数を設計する。
-- [SYW-ICP-005][MUST][manual] `POST` は複製実行される前提で、idempotency を持たない外部更新 API をそのまま呼ばない。
-- [SYW-ICP-006][SHOULD][manual] サブネット側のレート制限増幅を考慮し、認証付き API と低頻度アクセスを優先する。
+- [SYW-AUTH-001][MUST][manual] delegation chain の暗号学的検証をバックエンドで行う。
+- [SYW-AUTH-002][MUST][manual] principal 文字列の自己申告だけで認証完了としない。
+- [SYW-AUTH-003][MUST][manual] 署名検証は公式ライブラリ（`ic-validator-ingress-message` / `@dfinity/standalone-sig-verifier-web`）を使い、自前実装しない。
+- [SYW-AUTH-004][MUST][manual] 本番では `fetchRootKey()` に依存しない。
+- [SYW-AUTH-005][SHOULD][manual] delegation chain のキャッシュを行う場合、TTL は delegation の expiration 以下にする。
+- [SYW-AUTH-006][MUST][config] ブラウザ上の Internet Identity ログイン・セッションは **`@icp-sdk/auth`**（[dfinity/icp-js-auth](https://github.com/dfinity/icp-js-auth)、ドキュメント [js.icp.build/auth](https://js.icp.build/auth)）を使う。**`@dfinity/auth-client` は用いない**（移行ガイドは upstream README を参照）。
+
+### 4.4 ICP（認証基盤としてのみ）
+
+- [SYW-ICP-001][MUST][manual] ICP キャニスターの役割は Internet Identity 認証に限定する。
+- [SYW-ICP-002][MUST NOT][manual] ICP HTTPS outcall を業務ロジックのために使わない。
 
 ## 5. ターゲットアーキテクチャ規約
 
-- [SYW-ARCH-001][MUST][manual] キャニスターから Flux 上の DB へは、公開 HTTPS 経路を通して到達できること。
-- [SYW-ARCH-002][MUST][manual] DB 公開面は「限定 API」「固定 JSON 返却」「安定したステータスコード」に寄せる。
-- [SYW-ARCH-003][MUST][manual] SurrealQL 文字列を呼び出し元が自由入力できる構成を採用しない。
-- [SYW-ARCH-004][SHOULD][manual] SurrealDB v3 `DEFINE API` を BFF 的に使い、ICP 側には用途別の小さい API 面だけを見せる。
-- [SYW-ARCH-005][MUST][manual] 書き込み系は request ID を伴う idempotent API にし、重複時は同一結果を返す。
-- [SYW-ARCH-006][SHOULD][manual] 読み取り系は GET もしくは副作用なし POST に分離する。
+- [SYW-ARCH-001][MUST][manual] ICP は Internet Identity 認証基盤のみとし、メインバックエンドは basolato on Flux Cloud とする。
+- [SYW-ARCH-002][MUST NOT][manual] ICP HTTPS outcall を業務ロジックや DB アクセスに使わない。
+- [SYW-ARCH-003][MUST][manual] basolato に II Auth ミドルウェアを実装し、delegation chain の署名検証で認証する。
+- [SYW-ARCH-004][MUST][manual] basolato から SurrealDB への通信は Flux 内部ネットワークで行う。
+- [SYW-ARCH-005][MUST][manual] SurrealQL 文字列をエンドユーザーが自由入力できる構成を採用しない。
+- [SYW-ARCH-006][SHOULD][manual] SurrealDB v3 `DEFINE API` を BFF 的に使い、basolato には用途別の小さい API 面だけを見せる。
+- [SYW-ARCH-007][MUST][manual] basolato アプリは stateless に設計し、セッション状態はインスタンスローカルに持たない。
 
 ## 6. セキュリティ規約
 
 - [SYW-SEC-001][MUST][manual] シークレットは環境変数またはデプロイ設定から注入する。
-- [SYW-SEC-002][MUST][manual] キャニスターに持たせる資格情報は database user 相当の最小権限に限定する。
+- [SYW-SEC-002][MUST][manual] basolato に持たせる SurrealDB 資格情報は database user 相当の最小権限に限定する。
 - [SYW-SEC-003][MUST][manual] SurrealDB 側テーブル権限を未定義のまま運用しない。既定の `PERMISSIONS NONE` を前提に必要箇所だけ許可する。
 - [SYW-SEC-004][SHOULD][manual] SurrealDB の capability は deny-by-default に寄せ、不要な outbound network を許可しない。
-- [SYW-SEC-005][MUST][manual]  compromised replica 問題は残るため、本サンプルの write path は「honest duplicate への耐性」を目標にし、「悪意ある replica に対する完全防御」は非目標として明記する。
+- [SYW-SEC-005][MUST][manual] delegation chain の署名検証を自前実装しない。
+- [SYW-SEC-006][MUST][manual] フロントエンドの origin を CORS で制限する。
 
 ## 7. データ整合性規約
 
@@ -121,7 +133,6 @@ Lint可能化のため、規範ルールは **Rule ID** を持つ。
   - 単一アクティブ + フェイルオーバー
   - 外部共有ストレージ / 共有 DB オペレータ
   - 分散ストレージを前提とした正式クラスタ
-- [SYW-DATA-003][SHOULD][manual] 書き込み結果は operation ledger 的な記録で再取得可能にする。
 
 ## 8. ドキュメント規約
 
@@ -129,339 +140,130 @@ Lint可能化のため、規範ルールは **Rule ID** を持つ。
 - [SYW-DOC-002][MUST][manual] 調査日は絶対日付で記載する。
 - [SYW-DOC-003][SHOULD][manual] 実装着手条件を設計書末尾にチェックリスト化する。
 
-## 9. 調査に基づく確定事項（2026-03-07 UTC）
+## 9. 設計書 — Nim-ICP-FluxCloud-SurrealDB
 
-### 9.1 ICP HTTPS outcall
+この節は §1〜8 の規約を補足するアーキテクチャ記述である。規範の衝突は §0 のルール一覧を優先する。
 
-- ICP の HTTPS outcall は canister から management canister の `http_request` を通して実行する。
-- サポートされる HTTP method は `GET`、`HEAD`、`POST` に限られる。
-- `max_response_bytes` は省略可能だが、未指定時は 2MB で課金される。
-- cycles は明示的に転送しなければならない。
-- replica ごとの応答差分を均一化するため、必要に応じて transform 関数を定義する。
-- `POST` は subnet の各 replica から複製実行されるため、外部更新先は idempotent である必要がある。
+### 9.1 構成の要点
 
-### 9.2 Flux Cloud
+- **認証**: Internet Identity と delegation chain がユーザーの正当性の根拠。ICP キャニスターは認証・委任発行に専念し、業務データへは HTTPS outcall 経由で触れない。
+- **アプリ層**: メインバックエンドは **Nim basolato**（Flux Cloud 上、stateless 前提）。
+- **データ層**: **SurrealDB v3**（クエリ/API 層）と **TiKV / PD**（永続化・シャーディング・レプリカ）。業務アクセスは **Flux 内部ネットワーク**で SurrealDB に届ける。
 
-- FluxCloud は最低 3 インスタンスでのデプロイを要求する。
-- アプリは `*.app.runonflux.io` の Flux Domain Name を持てる。独自ドメインは CNAME で紐づけられる。
-- Git / Webhook 例では `https://YOUR-APP-9001.app.runonflux.io/...` が使われている。
-- Shared Database では DB engine container と `runonflux/shared-db:latest` operator の 2 コンポーネント構成が示されている。
-- FluxCloud には Interactive Terminal、Volume Browser、Manage App などの運用支援機能がある。
+業務処理を canister の HTTPS outcall に載せると、cycles 消費・ingress の POST 複製・compute 上限の問題が直撃するため、DB パスは basolato 側に置く。
 
-### 9.3 SurrealDB v3
+調査記録の要点: Internet Identity / principal（2026-03-09 UTC）、Flux・Surreal・TiKV・outcall（2026-04-18 JST）、認証基盤とバックエンドの責務分離（2026-04-19 JST）。
 
-- 2026-02-17 に `SurrealDB v3.0.0`、2026-02-24 に `v3.0.1` がリリースされている。
-- HTTP で SurrealQL を実行する `/sql` endpoint がある。`surreal-ns` と `surreal-db` ヘッダを指定できる。
-- SurrealDB v3 には `DEFINE API` があり、`/api/:namespace/:database/:endpoint_name` 形式でカスタム endpoint を作れる。
-- 認証は system user、record user など複数形態を持つ。system user は root / namespace / database レベルを選べる。
-- table 権限は既定で `PERMISSIONS NONE` であり、必要な操作を明示的に開ける構成が基本になる。
-- capability は deny-by-default を推奨するドキュメントがある。
-- `DEFINE ACCESS ... TYPE BEARER` は存在するが、grant を発行する `ACCESS` 文は experimental と明記されているため、本サンプルの既定設計には採用しない。
-
-## 10. 重要な設計制約
-
-### 10.1 ICP の `POST` 複製実行
-
-単純な `POST /sql` で mutation を外部 DB に送ると、同一 update call が subnet replica 数だけ外部に送信される。SurrealDB 側に idempotency 制御がない限り、重複 insert や重複 side effect が起きる。
-
-したがって、**キャニスターから任意の SurrealQL mutation を直接流す設計は採用しない。**
-
-### 10.2 FluxCloud の 3 インスタンス制約
-
-FluxCloud は最低 3 インスタンスでのアプリ配置が前提である。素朴に SurrealDB コンテナを 3 台起動し、同一 FDN の背後で負荷分散すると、各インスタンスが独立 DB として振る舞う危険がある。
-
-したがって、**Flux 上の SurrealDB を単一論理 DB として見せるための整合性戦略を先に固定する必要がある。**
-
-## 11. 採用方針
-
-### 11.1 キャニスターから SurrealDB へ直接 `/sql` は使わない
-
-採用しない理由:
-- 汎用クエリ文字列を外部公開すると、入力検証と権限制御が難しい
-- ICP の `POST` 問題と相性が悪い
-- response 形状が多様で transform 実装が不安定になりやすい
-
-代わりに採用する方針:
-- SurrealDB v3 `DEFINE API` で用途限定 endpoint を定義する
-- canister はその endpoint のみを呼ぶ
-- SurrealDB 側で入力と返却 JSON を固定する
-
-### 11.2 認証は database-level system user を既定とする
-
-採用理由:
-- root credential を canister に持たせずに済む
-- namespace/database 単位で権限を閉じやすい
-- bearer grant は `ACCESS` 文が experimental のため、この時点では避ける
-
-### 11.3 書き込みは idempotent API 化する
-
-採用理由:
-- ICP の `POST` 複製実行に耐えるため
-- retry / timeout / duplicate delivery の吸収が必要なため
-
-方針:
-- canister は各 mutation に `request_id` を付与する
-- SurrealDB 側は `request_id` ごとの operation ledger を持つ
-- 既に処理済みの `request_id` なら、同じ結果を返し再実行しない
-- 変更対象 record には deterministic ID を使うか、ledger に結果 record ID を保存する
-
-## 12. 目標アーキテクチャ
+### 9.2 論理アーキテクチャ
 
 ```text
 User
-  -> ICP update/query call
-  -> Nim canister
-  -> management canister http_request
-  -> HTTPS endpoint on Flux Cloud
-  -> SurrealDB v3 DEFINE API
-  -> SurrealDB storage
+  -> Frontend (SPA)
+  -> Internet Identity (ICP)
+  <- delegation chain
+  -> basolato (Flux Cloud) + delegation chain
+  -> II Auth ミドルウェア（検証）
+  -> 業務ロジック
+  -> SurrealDB（Flux 内部）
+  -> TiKV クラスタ
 ```
 
-責務:
-- ICP canister: アプリケーションロジック、caller 認可、request_id 生成、response transform
-- Flux/SurrealDB: 永続化、用途限定 API、公表 JSON 生成、idempotency ledger
+### 9.3 責務
 
-## 13. 配置案
+| コンポーネント | 責務 |
+|----------------|------|
+| Frontend | II ログイン（`@icp-sdk/auth`）、delegation を basolato へ渡す |
+| ICP / II | 認証と delegation 発行のみ |
+| basolato | 検証ミドルウェア、認可、業務ロジック、SurrealDB アクセス |
+| SurrealDB | モデル・永続化・（用途限定の）API 面 |
+| TiKV / PD | 実データ、Region 分割、レプリカ |
 
-### 13.1 推奨案: Flux 上で単一アクティブの SurrealDB を HTTPS 公開
+### 9.4 delegation chain（設計上の要点）
 
-設計意図:
-- DB は 1 つの論理インスタンスとして扱う
-- Flux の多重配置は可用性用に使い、DB への同時 multi-writer 化は避ける
+詳細な規範は §4.3。ここでは設計メモのみ。
 
-必要条件:
-- 単一アクティブ / フェイルオーバーの成立方法を運用で確認する
-- 公開 FDN または独自ドメインで HTTPS endpoint を確保する
-- Volume 永続化の failover 時挙動を検証する
+- 検証の信頼の起点は **NNS root public key**。署名検証は **`ic-validator-ingress-message`** / **`@dfinity/standalone-sig-verifier-web`** に委ね、**自前の暗号実装は禁止**（§6 と整合）。
+- `expiration`・`targets` を検証し、principal は **origin に依存**する（hostname / port 変更で変わり得る）。
 
-注意:
-- Flux docs には一般アプリの stateful DB を安全に 3 台同期する正式仕様が十分に書かれていない
-- よって、この案は**運用確認が必要な推奨案**であり、現時点で完全確定ではない
+### 9.5 Internet Identity → basolato フロー
 
-### 13.2 保留案: Flux Shared DB operator を SurrealDB に適用する
+1. **`@icp-sdk/auth`** の `AuthClient`（`import { AuthClient } from '@icp-sdk/auth/client'`）で II ログイン（WebAuthn）。パッケージはブラウザ専用。[icp-js-auth](https://github.com/dfinity/icp-js-auth)
+2. delegation chain をフロントが保持。
+3. basolato 呼び出し時、delegation 関連を **HTTP ヘッダ**で送る（クエリ文字列は避ける）。
+4. II Auth ミドルウェアが検証し、principal をコンテキストに載せる。失敗時は **401**。
 
-利点:
-- Flux は shared database 用 operator を提供している
+**ヘッダ案**: `X-II-Principal`、`X-II-Delegation-Chain`（Base64 CBOR）、`X-II-Pubkey`、`X-II-Signature`、`X-II-Request-Id`。principal のみの自己申告は不可。
 
-懸念:
-- 公式ドキュメントは MySQL 例が中心で、SurrealDB への適用可否が明示されていない
-- SurrealDB の data path や health/control port との適合が未確認
+### 9.6 II Auth ミドルウェア
 
-結論:
-- 現時点では採用保留
+- ヘッダから材料を取り出し、連鎖・期限・targets・principal 対応を検証。
+- 実装は **Wasm（standalone-sig-verifier）を Nim から呼ぶ**か、**Rust クレートを FFI**、のいずれか。Nim 単体での検証ロジック実装は避ける。
+- NNS root は本番では設定・固定取得。ローカルは replica の root key。**本番で `fetchRootKey()` に依存しない**。
+- オプション: 検証結果の短期キャッシュ（TTL は delegation の expiration 以下、インスタンスローカル）。
 
-### 13.3 非推奨案: 3 インスタンスに SurrealDB をそのまま配置し FDN 背後でラウンドロビン
+### 9.7 basolato と SurrealDB
 
-非推奨理由:
-- split-brain
-- 読み書きで到達先が毎回変わる
-- canister から見ると DB 一貫性が保証されない
+- HTTP API で接続。**DEFINE API** で用途限定面を切る方針（§4.2・§5 と整合）。runtime は **database user**、root は移行・管理のみ。
+- エンドユーザーに生の SurrealQL を渡さない（§5）。
 
-## 14. API 設計
+**REST の想定（サンプル）**
 
-### 14.1 API 原則
+| メソッド | パス | 用途 |
+|---------|------|------|
+| GET | `/health` | 生存・DB 接続確認 |
+| GET | `/api/todos` | 認証済みユーザーの Todo 一覧 |
+| POST | `/api/todos` | 作成（body: `title`） |
+| PUT | `/api/todos/:id` | 更新 |
+| DELETE | `/api/todos/:id` | 削除 |
 
-- endpoint は用途別に固定する
-- response JSON の shape を固定する
-- timestamp や trace header など replica 間でズレる値は返さない
-- canister transform で不要ヘッダを除去できるようにする
+### 9.8 Flux Cloud とデータ配置
 
-### 14.2 予定 endpoint
+- アプリは **複数インスタンス**前提。**Surreal をインスタンス数ぶん「独立した 1 台 DB」として並べる**構成は採用しない（単一論理 DB を壊す）。
+- PoC では **synchronize data across components** による **単一アクティブ + スタンバイ**案を候補にできる。
+- 伸ばすときは **basolato（stateless）** と **PD + TiKV + Surreal** を分離し、**シャーディングは TiKV の Region** に寄せる。SurrealDB は固定 shard 数ではなく **クエリ層**として扱う（§7 と整合）。
 
-#### `GET /api/<ns>/<db>/health`
+### 9.9 認可の整理
 
-用途:
-- Flux 側到達確認
-- DB 接続確認
-- canister の read path 疎通確認
+- **ユーザー単位の認可**は basolato。
+- SurrealDB は basolato 用 DB ユーザーと **PERMISSIONS** でテーブル・API を最小化（§6）。
 
-返却例:
+### 9.10 最小データモデル（案）
 
-```json
-{
-  "ok": true,
-  "service": "surrealdb",
-  "version": "3.0.x"
-}
-```
+- **users**: `ii_principal_text`（UNIQUE）、profile、時刻。
+- **todos**: `principal`、title、completed、時刻。id は UUIDv7 / ULID 等、**単調連番のみに高頻度書き込みを集中させない**（TiKV hot range 回避）。
 
-#### `POST /api/<ns>/<db>/person_get`
+### 9.11 ローカル `compose.yaml`
 
-用途:
-- 主キーや deterministic ID で 1 件取得
+ローカル検証用の **pd / tikv×3 / surreal / app** など最小構成。basolato が SurrealDB（TiKV バックエンド）へ内部接続する動作確認に使う。
 
-入力:
+### 9.12 未解決課題（例）
 
-```json
-{
-  "person_id": "person:alice"
-}
-```
+- Nim から公式検証スタックを呼ぶ具体手段（Wasm FFI / Rust .so / subprocess）の確定。
+- NNS root の運用取得手順の確定。
+- Flux Shared DB オペレータと Surreal+TiKV 多層の適合確認。
+- `DEFINE API` を本番既定にするか、HTTP API の直接利用の割合をどうするか。
+- CORS の具体的オリジン一覧。
 
-#### `POST /api/<ns>/<db>/person_upsert`
+### 9.13 実装着手条件（チェックリスト）
 
-用途:
-- idempotent write のサンプル
+- delegation 検証のライブラリ結合方式が決まっている。
+- NNS root の管理方針が決まっている。
+- II Auth ミドルウェアの I/O と失敗時挙動が固まっている。
+- Flux 上の DB トポロジ（PoC の active/standby か、クラスタ分離か）が決まっている。
+- basolato ↔ SurrealDB の API 形が固定されている。
+- DB ユーザー権限と CORS が文書化されている。
+- ローカル compose の役割が合意されている。
 
-入力:
+### 9.14 運用メモ
 
-```json
-{
-  "request_id": "req_xxx",
-  "person_id": "person:alice",
-  "name": "Alice",
-  "age": 30
-}
-```
+health に DB 接続可否を載せる。アクセスログに principal。Flux の Manage App / Terminal / Volume Browser を障害調査の入口にする。
 
-期待動作:
-- 初回: ledger 未登録なら upsert 実行
-- 重複: ledger の結果を返す
+### 9.15 参考リンク（代表）
 
-## 15. データモデル
-
-### 15.1 `person`
-
-- sample の業務データ
-- record id は client-determined を基本とする
-
-### 15.2 `operation_ledger`
-
-- `request_id` を主キーに持つ
-- status
-- target_table
-- target_id
-- result_snapshot
-- created_at
-
-用途:
-- duplicate `POST` 吸収
-- retry 時の deterministic response 返却
-- 監査・再取得
-
-## 16. 認証・認可
-
-### 16.1 認証
-
-既定案:
-- SurrealDB に database-level user を作る
-- canister はその資格情報を使う
-- root は migration/admin 専用に分離し、runtime path では使わない
-
-### 16.2 認可
-
-- DB user には必要最小限の API/テーブル権限のみを付与する
-- 直接 `/sql` を公開しないことで、想定外 query 面を閉じる
-- `DEFINE TABLE ... PERMISSIONS` を前提に、対象 table の操作範囲を制限する
-
-## 17. ICP 側設計方針
-
-### 17.1 呼び出し方式
-
-- read path: `GET` または副作用なし `POST`
-- write path: `POST` だが request_id 付き idempotent endpoint のみ
-
-### 17.2 request_id
-
-要件:
-- 同一 update message の全 replica で同じ値になる
-- replay 判定に使える
-
-候補:
-- canister 内の stable counter と caller / method / logical key を組み合わせた deterministic ID
-
-注意:
-- malicious replica 問題は残るため、完全防御ではない
-
-### 17.3 transform
-
-canister の transform では以下を行う:
-- 可変レスポンスヘッダの除去
-- 必要最小限の body 抽出
-- 余分な metadata の除去
-
-### 17.4 cycles
-
-`max_response_bytes` を小さめに設定し、HTTP body とヘッダを最小化する。ICP の現行コスト式は以下:
-
-```text
-total_fee = base_fee + size_fee
-base_fee = (3_000_000 + 60_000 * n) * n
-size_fee = (400 * request_bytes + 800 * max_response_bytes) * n
-```
-
-そのため、response を小さく保つこと自体が重要な設計要件となる。
-
-## 18. 運用・可観測性
-
-Flux 側で利用する運用面:
-- Manage App
-- Interactive Terminal
-- Volume Browser
-
-運用方針:
-- health endpoint を持つ
-- operation ledger によって write 重複の痕跡を追えるようにする
-- DB ログと canister 側 request_id を相互に照合できるようにする
-
-## 19. リスクと未解決課題
-
-### 19.1 R1. Flux 上の SurrealDB をどう単一論理 DB として維持するか
-
-状況:
-- Flux は最低 3 インスタンス
-- stateful DB を一般アプリとして安全運用する標準形が docs 上で十分明示されていない
-
-対応:
-- 実装前に配置方式を確定する
-
-### 19.2 R2. HTTPS 終端の確実性
-
-状況:
-- ICP outcall は HTTPS 前提
-- Flux docs には FDN や webhook の HTTPS 例がある
-- ただし DB 用 custom port でも同条件かは未確認
-
-対応:
-- 実装前に HTTPS 到達パスを実地確認する
-
-### 19.3 R3. malicious replica による外部 `POST`
-
-状況:
-- ICP docs でも完全には解決しないとされる
-
-対応:
-- 本サンプルでは honest duplicate 耐性までを目標に置く
-- 高信頼 write が必要なら、将来的に server-side signature 検証や専用 gateway を検討する
-
-### 19.4 R4. Shared DB operator の SurrealDB 適用性
-
-状況:
-- 公式 docs は MySQL 例中心
-
-対応:
-- 適用可否は別検証タスクに分離する
-
-## 20. 実装着手条件
-
-- Flux 上の SurrealDB 配置方式が確定している
-- HTTPS 到達性が確認できている
-- SurrealDB 側 endpoint 仕様が `DEFINE API` ベースで確定している
-- write path の request_id / ledger / duplicate response 仕様が確定している
-- runtime credential の保管方法が確定している
-
-## 21. 参考仕様
-
-- FluxCloud Introduction: https://docs.runonflux.com/fluxcloud/introduction/
-- FluxCloud Dapp Details: https://docs.runonflux.com/flux/fluxcloud/cloud/products/launch/dapp-details
-- FluxCloud Custom Domain Setup: https://docs.runonflux.com/fluxcloud/register-new-app/custom-domain-setup/
-- FluxCloud Shared Database Component: https://docs.runonflux.com/fluxcloud/shared-database/component/
-- SurrealDB release notes: https://surrealdb.com/releases
-- SurrealDB SurrealQL via HTTP: https://surrealdb.com/docs/surrealdb/querying/surrealql/http
-- SurrealDB DEFINE API: https://surrealdb.com/docs/surrealql/statements/define/api
-- SurrealDB Authentication: https://surrealdb.com/docs/surrealdb/security/authentication
-- SurrealDB Capabilities: https://surrealdb.com/docs/surrealdb/security/capabilities
-- SurrealDB DEFINE ACCESS / ACCESS: https://surrealdb.com/docs/surrealql/statements/define/access
-- ICP HTTPS outcalls overview: https://docs.internetcomputer.org/building-apps/network-features/using-http/https-outcalls/overview
-- ICP HTTPS outcalls reference: https://internetcomputer.org/docs/references/https-outcalls-how-it-works
-- ICP cycles cost formulas: https://docs.internetcomputer.org/references/cycles-cost-formulas
+- フロント II 連携: [`@icp-sdk/auth`](https://github.com/dfinity/icp-js-auth)（[js.icp.build/auth](https://js.icp.build/auth)）
+- ICP: [II 仕様](https://docs.internetcomputer.org/references/ii-spec)、[署名の独立検証](https://docs.internetcomputer.org/building-apps/authentication/independently-verifying-ic-signatures)、[IC インタフェース](https://docs.internetcomputer.org/references/ic-interface-spec)、[IAM ベストプラクティス](https://docs.internetcomputer.org/building-apps/security/iam)
+- 検証実装: [ic-validator-ingress-message](https://github.com/dfinity/ic/tree/master/rs/validator)、[`@dfinity/standalone-sig-verifier-web`](https://www.npmjs.com/package/@dfinity/standalone-sig-verifier-web)
+- basolato: https://github.com/itsumura-h/nim-basolato
+- Flux Cloud: https://docs.runonflux.com/fluxcloud/introduction/
+- SurrealDB: [Architecture](https://surrealdb.com/docs/surrealdb/introduction/architecture)、[TiKV](https://surrealdb.com/docs/surrealdb/installation/running/tikv)、[DEFINE API](https://surrealdb.com/docs/surrealql/statements/define/api)
+- TiKV / PD: [TiKV Overview](https://docs.pingcap.com/tidb/stable/tikv-overview/)、[minimal topology](https://docs.pingcap.com/tidb/stable/minimal-deployment-topology/)

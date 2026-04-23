@@ -1,5 +1,5 @@
 exec:
-	docker compose up -d
+	docker compose start
 	docker compose exec app bash
 
 stop:
@@ -8,15 +8,10 @@ stop:
 diff:
 	git diff --cached > .diff
 
-reinstall:
-	-nimble uninstall nicp_cdk -iy
-	nimble install -y
+migrate:
+	nim c -r migrate/migrate.nim
 
 run:
-	-nimble uninstall nicp_cdk -iy
-	nimble install -y
-	ndfx cHeaders
-	dfx stop
-	dfx killall
-	rm -rf /application/example/.dfx
-	dfx start --clean --background --host 0.0.0.0:4943 --domain localhost --domain 0.0.0.0
+	icp network stop || true
+	rm -rf .icp
+	icp network start -d

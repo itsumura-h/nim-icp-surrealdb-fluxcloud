@@ -1,0 +1,13 @@
+# icp-cli プロジェクト設定（ローカル PocketIC / レプリカ + Internet Identity）
+# 参考: https://github.com/dfinity/icp-cli ・ docs/reference/configuration.md
+# yaml-language-server: $schema=https://raw.githubusercontent.com/dfinity/icp-cli/main/docs/schemas/icp-yaml-schema.json
+#
+# ゲートウェイは compose の 4943:4943 と一致させる。8000 は basolato / Surreal 側と避ける。
+# II は ii: true でローカルに provision（手動の dfx deploy II と同等の用途）。
+networks:
+  - name: local
+    mode: managed
+    gateway:
+      bind: 0.0.0.0
+      port: 4943
+    ii: true
